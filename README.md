@@ -50,33 +50,28 @@ This backend project simulates an e-commerce platform that processes orders usin
 ---
 
 ## 2. Lambda Function 
-` const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+`const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, PutCommand } = require("@aws-sdk/lib-dynamodb");
-
 const client = new DynamoDBClient();
 const docClient = DynamoDBDocumentClient.from(client);
-
 exports.handler = async (event) => {
   for (const record of event.Records) {
     try {
       const snsWrapped = JSON.parse(record.body);
       const order = JSON.parse(snsWrapped.Message);
-
       const command = new PutCommand({
         TableName: "Orders",
         Item: order,
       });
-
       await docClient.send(command);
       console.log("Order saved:", order.orderId);
     } catch (err) {
       console.error("Error saving order:", err);
     }
   }
-
   return { statusCode: 200, body: "Done" };
-};`
-
+};
+`
 3. Screenshots 
 SNS Subscription:
 <img width="546" alt="Screenshot 2025-05-10 at 5 54 35 PM" src="https://github.com/user-attachments/assets/e80dfb0c-e326-41d3-b031-4db81187c49d" />
@@ -95,7 +90,3 @@ Dynamo DB Order table:
 **Dead Letter Queue (DLQ)** acts as a backup system. If a message fails to be processed after the allowed number of retries (`maxReceiveCount = 3`), it is sent to the DLQ instead of getting lost. This allows developers to inspect failed messages, troubleshoot errors, and manually retry if needed.
 
 Together, they ensure **fault tolerance**, **reliable retries**, and **error traceability** in serverless systems.
-
-
-                                      ↓
-                                   [DLQ]
