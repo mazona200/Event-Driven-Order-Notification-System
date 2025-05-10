@@ -50,7 +50,8 @@ This backend project simulates an e-commerce platform that processes orders usin
 ---
 
 ## 2. Lambda Function 
-`const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+<pre markdown> 
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, PutCommand } = require("@aws-sdk/lib-dynamodb");
 const client = new DynamoDBClient();
 const docClient = DynamoDBDocumentClient.from(client);
@@ -71,7 +72,8 @@ exports.handler = async (event) => {
   }
   return { statusCode: 200, body: "Done" };
 };
-`
+ </pre>
+
 3. Screenshots 
 SNS Subscription:
 <img width="546" alt="Screenshot 2025-05-10 at 5 54 35 PM" src="https://github.com/user-attachments/assets/e80dfb0c-e326-41d3-b031-4db81187c49d" />
