@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Event-Driven Order Notification System
+
+Resources:
+
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Orders
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  OrderTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: OrderTopic
+
+  OrderQueueDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: OrderDLQ
+
+  OrderQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: OrderQueue
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderQueueDLQ.Arn
+        maxReceiveCount: 3
+
+  OrderQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref OrderQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSNSPublish
+            Effect: Allow
+            Principal: "*"
+            Action: SQS:SendMessage
+            Resource: !GetAtt OrderQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref OrderTopic
+
+  SNSToSQSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      TopicArn: !Ref OrderTopic
+      Endpoint: !GetAtt OrderQueue.Arn
+      RawMessageDelivery: true
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: OrderProcessorLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaSQSDynamoAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !GetAtt OrdersTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt OrderQueue.Arn
+
+  ProcessOrderLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ProcessOrderLambda
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+          const { DynamoDBDocumentClient, PutCommand } = require("@aws-sdk/lib-dynamodb");
+          const client = new DynamoDBClient();
+          const docClient = DynamoDBDocumentClient.from(client);
+          exports.handler = async (event) => {
+            for (const record of event.Records) {
+              try {
+                const snsWrapped = JSON.parse(record.body);
+                const order = JSON.parse(snsWrapped.Message);
+                const command = new PutCommand({
+                  TableName: "Orders",
+                  Item: order,
+                });
+                await docClient.send(command);
+                console.log("Order saved:", order.orderId);
+              } catch (err) {
+                console.error("Error saving order:", err);
+              }
+            }
+            return { statusCode: 200, body: "Done" };
+          };
+
+      Events:
+        SQSTrigger:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderQueue.Arn
